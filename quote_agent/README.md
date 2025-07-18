@@ -17,18 +17,21 @@ This application demonstrates the A2A SDK by creating a quote generation agent t
 - **Multiple Transport Support**: HTTP, WebSocket, SSE automatically supported
 - **Environment-based Configuration**: Easy configuration via environment variables
 - **Comprehensive Testing**: Automated and interactive test modes
+- **Full Observability**: Integrated with Langfuse and OpenInference for LLM monitoring
+- **OpenTelemetry Support**: Distributed tracing and metrics collection
 
 ## Project Structure 📁
 
 ```
-quote_agent_simple/
+quote_agent/
 ├── __init__.py           # Package initialization (empty)
 ├── __main__.py           # Main application entry point
 ├── agent_executor.py     # Quote generation logic and executor
+├── observability.py      # Langfuse and OpenInference observability setup
 ├── test_client.py        # A2A client for testing
 ├── pyproject.toml        # Project configuration and dependencies
 ├── README.md             # This documentation
-└── .env.example          # Environment variables template
+└── env.example           # Environment variables template
 ```
 
 ## Setup and Deployment 🚀
@@ -82,6 +85,7 @@ The agent will be running on `http://localhost:8080` and you'll see:
 🌐 Agent will be available at: http://localhost:8080
 📝 Agent Card: http://localhost:8080/.well-known/agent.json
 🔄 A2A Endpoints: HTTP/WebSocket/SSE supported
+📊 Observability: Enabled with Langfuse (if configured)
 Press Ctrl+C to stop the agent
 ```
 
@@ -114,6 +118,80 @@ Generate a completely random inspirational quote:
 - "Give me a random quote"
 - "Surprise me with a quote"
 - "Random inspirational quote"
+
+## Observability 📊
+
+The Quote Generator Agent includes comprehensive observability features using Langfuse and OpenInference libraries to monitor and analyze LLM performance.
+
+### Features
+
+- **🔍 Request Tracing**: Track complete request lifecycle from user input to response
+- **🤖 LLM Monitoring**: Monitor OpenAI API calls with detailed metrics
+- **📈 Performance Analytics**: Track token usage, latency, and success rates
+- **🚨 Error Tracking**: Capture and analyze failures with full context
+- **📊 Cost Monitoring**: Track OpenAI API costs and usage patterns
+
+### Setup Langfuse
+
+1. **Create Langfuse Account**: 
+   - Sign up at [https://cloud.langfuse.com](https://cloud.langfuse.com)
+   - Or deploy self-hosted Langfuse instance
+
+2. **Get API Keys**:
+   - Navigate to Settings → API Keys
+   - Create new API key pair (Public + Secret)
+
+3. **Configure Environment Variables**:
+   ```bash
+   # Copy the example file
+   cp env.example .env
+   
+   # Edit .env with your Langfuse credentials
+   LANGFUSE_SECRET_KEY=sk-lf-...
+   LANGFUSE_PUBLIC_KEY=pk-lf-...
+   LANGFUSE_HOST=https://cloud.langfuse.com
+   LANGFUSE_ENABLED=true
+   ```
+
+### Observability Data
+
+The agent automatically tracks:
+
+#### 📋 **Request Traces**
+- User message input
+- Request routing (topic vs random)
+- Final quote output
+- Processing time and status
+
+#### 🤖 **LLM Generations**
+- Model used (e.g., gpt-3.5-turbo)
+- Input prompts and system messages
+- Generated responses
+- Token usage (input/output/total)
+- API latency and costs
+
+#### 📊 **Metadata**
+- Agent version and configuration
+- Request types and topics
+- Success/failure rates
+- Performance metrics
+
+### Viewing Observability Data
+
+1. **Langfuse Dashboard**: Visit your Langfuse instance to view:
+   - Real-time traces and generations
+   - Performance analytics and charts
+   - Cost analysis and token usage
+   - Error rates and debugging info
+
+2. **OpenTelemetry Integration**: 
+   - Traces are also exported via OpenTelemetry
+   - Compatible with other observability platforms
+   - Distributed tracing support
+
+### Disabling Observability
+
+Set `LANGFUSE_ENABLED=false` in your `.env` file to disable observability features.
 
 ### A2A Protocol Endpoints
 
@@ -189,6 +267,12 @@ Environment variables:
 | `OPENAI_API_KEY` | OpenAI API key (required) | - |
 | `OPENAI_MODEL` | OpenAI model to use | `gpt-3.5-turbo` |
 | `LOG_LEVEL` | Logging level | `INFO` |
+| `LANGFUSE_SECRET_KEY` | Langfuse secret key | - |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse public key | - |
+| `LANGFUSE_HOST` | Langfuse host URL | `https://cloud.langfuse.com` |
+| `LANGFUSE_ENABLED` | Enable/disable observability | `false` |
+| `OTEL_SERVICE_NAME` | OpenTelemetry service name | `quote-agent` |
+| `OTEL_SERVICE_VERSION` | OpenTelemetry service version | `1.0.0` |
 
 ## Development 🔧
 

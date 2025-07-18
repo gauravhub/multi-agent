@@ -7,6 +7,7 @@ from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.utils import new_agent_text_message
 from pydantic import BaseModel, ConfigDict
+from observability import create_trace, create_generation, flush_observability
 
 # Load environment variables
 try:
@@ -51,6 +52,13 @@ class QuoteGenerator(BaseModel):
         if not self._client:
             return "Sorry, the quote generation service is currently unavailable. Please check the OpenAI API key configuration."
         
+        # Create observability trace
+        trace = create_trace(
+            name="quote_generation",
+            input={"topic": topic, "type": "topic_specific"},
+            metadata={"agent": "quote_generator", "version": "1.0.0"}
+        )
+        
         try:
             # Create a prompt for generating quotes
             prompt = f"""Generate a single, original inspirational quote about {topic}. 
@@ -66,6 +74,18 @@ class QuoteGenerator(BaseModel):
             
             logger.info(f"🔵 Generating quote for topic: '{topic}'")
             
+            # Create generation for LLM call tracking
+            generation = create_generation(
+                trace=trace,
+                name="openai_quote_generation",
+                model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
+                input=[
+                    {"role": "system", "content": "You are a wise quote generator that creates original, inspirational quotes."},
+                    {"role": "user", "content": prompt}
+                ],
+                metadata={"topic": topic, "max_tokens": 150, "temperature": 0.8}
+            )
+            
             response = self._client.chat.completions.create(
                 model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
                 messages=[
@@ -80,16 +100,50 @@ class QuoteGenerator(BaseModel):
             logger.info(f"🔴 Generated quote: {quote[:50]}...")
             logger.debug(f"🔴 Token usage: {response.usage.total_tokens}")
             
+            # Update generation with response
+            if generation:
+                generation.end(
+                    output=quote,
+                    usage={
+                        "input_tokens": response.usage.prompt_tokens,
+                        "output_tokens": response.usage.completion_tokens,
+                        "total_tokens": response.usage.total_tokens
+                    }
+                )
+            
+            # Update trace with final output
+            if trace:
+                trace.update(
+                    output={"quote": quote, "topic": topic},
+                    metadata={"status": "success", "tokens_used": response.usage.total_tokens}
+                )
+            
             return quote
             
         except Exception as e:
             logger.error(f"Error generating quote for topic '{topic}': {e}")
-            return f"Sorry, I couldn't generate a quote about {topic} at the moment. Please try again later."
+            error_msg = f"Sorry, I couldn't generate a quote about {topic} at the moment. Please try again later."
+            
+            # Update trace with error
+            if trace:
+                trace.update(
+                    output={"error": str(e), "fallback_message": error_msg},
+                    metadata={"status": "error"}
+                )
+            
+            return error_msg
     
     async def random_quote(self) -> str:
         """Generate a random inspirational quote."""
         if not self._client:
             return "Sorry, the quote generation service is currently unavailable. Please check the OpenAI API key configuration."
+        
+        # Create observability trace
+        trace = create_trace(
+            name="quote_generation",
+            input={"type": "random"},
+            metadata={"agent": "quote_generator", "version": "1.0.0"}
+        )
         
         try:
             # Create a prompt for generating random quotes
@@ -107,6 +161,18 @@ class QuoteGenerator(BaseModel):
             
             logger.info("🔵 Generating random quote")
             
+            # Create generation for LLM call tracking
+            generation = create_generation(
+                trace=trace,
+                name="openai_random_quote_generation",
+                model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
+                input=[
+                    {"role": "system", "content": "You are a wise quote generator that creates original, inspirational quotes."},
+                    {"role": "user", "content": prompt}
+                ],
+                metadata={"type": "random", "max_tokens": 150, "temperature": 0.9}
+            )
+            
             response = self._client.chat.completions.create(
                 model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
                 messages=[
@@ -121,11 +187,38 @@ class QuoteGenerator(BaseModel):
             logger.info(f"🔴 Generated random quote: {quote[:50]}...")
             logger.debug(f"🔴 Token usage: {response.usage.total_tokens}")
             
+            # Update generation with response
+            if generation:
+                generation.end(
+                    output=quote,
+                    usage={
+                        "input_tokens": response.usage.prompt_tokens,
+                        "output_tokens": response.usage.completion_tokens,
+                        "total_tokens": response.usage.total_tokens
+                    }
+                )
+            
+            # Update trace with final output
+            if trace:
+                trace.update(
+                    output={"quote": quote, "type": "random"},
+                    metadata={"status": "success", "tokens_used": response.usage.total_tokens}
+                )
+            
             return quote
             
         except Exception as e:
             logger.error(f"Error generating random quote: {e}")
-            return "Sorry, I couldn't generate a random quote at the moment. Please try again later."
+            error_msg = "Sorry, I couldn't generate a random quote at the moment. Please try again later."
+            
+            # Update trace with error
+            if trace:
+                trace.update(
+                    output={"error": str(e), "fallback_message": error_msg},
+                    metadata={"status": "error"}
+                )
+            
+            return error_msg
 
 
 class QuoteGeneratorExecutor(AgentExecutor):
@@ -136,29 +229,59 @@ class QuoteGeneratorExecutor(AgentExecutor):
 
     async def execute(self, context: RequestContext, event_queue: EventQueue):
         """Execute the quote generation based on the user's request."""
+        # Extract the user message text
+        user_message = self._extract_user_message(context)
+        
+        # Create main execution trace
+        trace = create_trace(
+            name="agent_request_execution",
+            input={"user_message": user_message},
+            metadata={"agent": "quote_generator", "version": "1.0.0"}
+        )
+        
         try:
-            # Extract the user message text
-            user_message = self._extract_user_message(context)
             logger.info(f"📝 Processing request: '{user_message}'")
             
             # Determine which quote generation method to use
             if self._is_random_request(user_message):
                 logger.info("🎯 Routing to random quote generation")
                 result = await self.agent.random_quote()
+                request_type = "random"
             else:
                 # Extract topic from the message
                 topic = self._extract_topic(user_message)
                 logger.info(f"🎯 Routing to topic quote generation: '{topic}'")
                 result = await self.agent.generate_quote(topic)
+                request_type = "topic_specific"
             
             # Send the result back via event queue
             await event_queue.enqueue_event(new_agent_text_message(result))
             logger.info("✅ Quote generation completed successfully")
             
+            # Update trace with success
+            if trace:
+                trace.update(
+                    output={"quote": result, "request_type": request_type},
+                    metadata={"status": "success", "user_message": user_message}
+                )
+            
+            # Flush observability data
+            flush_observability()
+            
         except Exception as e:
             logger.error(f"❌ Error in quote generation: {e}")
             error_message = f"Sorry, I encountered an error while generating your quote: {str(e)}"
             await event_queue.enqueue_event(new_agent_text_message(error_message))
+            
+            # Update trace with error
+            if trace:
+                trace.update(
+                    output={"error": str(e), "fallback_message": error_message},
+                    metadata={"status": "error", "user_message": user_message}
+                )
+            
+            # Flush observability data even on error
+            flush_observability()
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue):
         """Cancel the quote generation - not supported."""

@@ -4,9 +4,20 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from agent_executor import QuoteGeneratorExecutor
+from observability import setup_observability, shutdown_observability
+
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 
 def main():
+    # Initialize observability
+    langfuse_client = setup_observability()
+    
     # Define agent skills - matching the original quote agent functionality
     generate_quote_skill = AgentSkill(
         id="generate_quote",
@@ -61,11 +72,19 @@ def main():
     print(f"🌐 Agent will be available at: http://localhost:8080")
     print(f"📝 Agent Card: http://localhost:8080/.well-known/agent.json")
     print("🔄 A2A Endpoints: HTTP/WebSocket/SSE supported")
+    if langfuse_client:
+        print("📊 Observability: Enabled with Langfuse")
+    else:
+        print("📊 Observability: Disabled")
     print("Press Ctrl+C to stop the agent")
     print()
 
-    # Start the server
-    uvicorn.run(server.build(), host="0.0.0.0", port=8080)
+    try:
+        # Start the server
+        uvicorn.run(server.build(), host="0.0.0.0", port=8080)
+    finally:
+        # Cleanup observability on shutdown
+        shutdown_observability()
 
 
 if __name__ == "__main__":
